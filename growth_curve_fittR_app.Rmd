@@ -1,0 +1,916 @@
+---
+title: 'Growth Curve FittR v1.0'
+output: 
+  flexdashboard::flex_dashboard:
+    source_code: https://github.com/saunders-lab/growth_curve_fittr
+    theme: bootstrap
+fontsize: 12pt
+runtime: shiny
+---
+
+```{r setup}
+library(tidyverse)
+#library(dplyr)
+#library(cowplot)
+#library(viridis)
+#library(knitr)
+library(modelr)
+library(broom)
+#ibrary(ggforce)
+library(grofit)
+
+
+theme_set(theme_bw())
+```
+
+# Instructions 
+
+```{r, child = 'app_embedded_instructions.Rmd'}
+res <- knitr::knit_child('app_embedded_instructions.Rmd', quiet = TRUE)
+cat(res, sep = '\n')
+```
+
+# 1. Upload Data { data-orientation=rows}
+
+## {.sidebar data-width='300%'}
+
+### 1. Upload Data
+
+See **[Instructions]** for more details. 
+
+Upload a .csv file where column 1 is "time" (in hrs). Data columns for each well / experiment follow. 
+
+#### Upload csv file:
+
+```{r}
+fileInput("file1", label = NULL, multiple = FALSE, 
+          accept = c("text/csv", "text/comma-separated-values,text/plain",".csv"))
+
+df <- reactive({
+  
+  req(input$file1)
+  
+  df <- read_csv(input$file1$datapath)
+  
+  df_well_index <- tibble(well = colnames(df)[-1]) %>% mutate(well_index = row_number())
+
+  df_wIndex <- left_join(df %>% gather(key = 'well',value = 'absorbance',-time), 
+                         df_well_index, 
+                         by = 'well' )
+  
+  
+  return(df_wIndex)
+  
+})
+
+```
+
+Here's are some [example datasets](). Download the datasets and choose one file to upload. 
+
+## Plots
+
+
+### Overview Plot
+
+```{r}
+renderPlot({
+  
+  ggplot(df(), aes(time, absorbance, group = well)) + geom_path() + theme_bw()
+  
+})
+```
+
+## Tables
+
+### Overview Table
+
+```{r}
+renderTable({
+  
+  df() %>% pivot_wider(id_cols = 'time', names_from = 'well', values_from = 'absorbance' )
+  
+})
+```
+
+
+# 2. Select Data to Fit { data-orientation=rows}
+
+## {.sidebar data-width='300%'}
+
+### 2. Select Data to Fit
+
+## Plots {data-height='300%'}
+
+### Plot Selected Curves
+
+
+```{r}
+
+output$selection_plot <- renderPlot({
+  
+  ggplot(df() %>% filter(well %in% input$selected_wells), aes(time, absorbance, group = well)) + geom_path() + labs(title = 'Drag the box to select data')+ theme_bw()
+  
+})
+
+plotOutput("selection_plot", brush = brushOpts(id = "selection_plot_brush"))
+
+# Reactive that returns the whole dataset if there is no brush
+
+selectedData <- reactive({
+  data <- brushedPoints(df(), input$selection_plot_brush) 
+  if (nrow(data) == 0)
+    data <- df()
+  data %>% filter(well %in% input$selected_wells)
+})
+
+```
+
+### Plot Selected Data
+
+```{r}
+
+#output$select_plot <- 
+  
+  renderPlot({
+  
+  ggplot(selectedData(), aes(time, absorbance, color = well)) + geom_path() + scale_color_viridis_d() + theme(legend.position = 'bottom')+ theme_bw()
+  
+})
+
+#plotOutput("select_plot", height = '300px')
+
+#renderUI(list(tags$hr(),plotOutput("overview_plot", brush = brushOpts(id = "overview_plot_brush"), height = '50px'), tags$hr(), plotOutput("select_plot", height = '100px')))
+
+```
+
+
+## Select Wells{data-height='100%'}
+
+### Select Subset of Growth Curves
+
+```{r}
+renderUI({
+  list(
+    sliderInput(inputId = 'well_range', label = 'Select a range of curves', min = 1, max = max(df()$well_index), value = c(1,max(df()$well_index)))
+  )
+})
+
+```
+
+### Select Individual Curves
+
+```{r}
+renderUI({    checkboxGroupInput(inputId = 'selected_wells', label = 'Choose specific curves',
+                     choices = levels(factor((df() %>% filter(well_index >= input$well_range[1] & well_index <= input$well_range[2]))$well)),
+                     selected = levels(factor((df() %>% filter(well_index >= input$well_range[1] & well_index <= input$well_range[2]))$well)),
+                     width = '100%', inline = T)})
+
+```
+
+## Tables {data-height='100%' .tabset}
+
+### Table Selected
+
+
+```{r}
+renderTable({
+  selectedData() %>% pivot_wider(id_cols = 'time', names_from = 'well', values_from = 'absorbance' )
+})
+```
+
+
+
+# 3. Fit Models {data-orientation=rows}
+
+## {.sidebar data-width='300%'}
+
+### 3. Fit Models
+
+See Instructions for more details.
+
+#### Select a Model:
+
+```{r}
+selectInput("model", NULL, c("Single Gompertz" = "gomp", "Bi-Gompertz" = "biGomp","Spline" = "spline"), selected = 'gomp')
+```
+
+* **Single Gompertz:** assumes a single growth phase
+* **Bi-Gompertz:** assumes two simultaneous growth phases
+* **Spline:** model-free approach, assumes nothing
+
+#### Parameters:
+
+* **A:** the asymptote of the maximum value.
+* **Mu / $\mu$:** (Maximum specific growth rate) the slope of the tangent at the inflection point.
+* **Lag / $\lambda$:** (Lag time) the x intercept of the Mu tangent.
+* **C:** minimal value offset from zero.
+
+#### Set starting parameter values
+
+```{r}
+
+params_gomp <- list(
+      numericInput("A", "A start value", 0.5), 
+      numericInput("Lag", "Lag start value", 4),
+      numericInput("Mu", "Mu start value", 0.2), 
+      numericInput("C", "C start value", 0.05),
+      NULL,
+      NULL,
+      NULL
+    )
+
+params_biGomp <- list(
+      numericInput("A", "A_1 start value", 0.5), 
+      numericInput("A_2", "A_2 start value", 0.2),
+      numericInput("Lag", "Lag_1 start value", 4),
+      numericInput("Lag_2", "Lag_2 start value", 5),
+      numericInput("Mu", "Mu_1 start value", 0.2), 
+      numericInput("Mu_2", "Mu_2 start value", 0.3),
+      numericInput("C", "C start value", 0.05)
+    )
+
+params_spline <- list(renderText("No params needed"),NULL, NULL, NULL, NULL, NULL, NULL )
+
+
+conditionalPanel(condition = "input.model == 'gomp'", 
+                 params_gomp
+                 )
+
+conditionalPanel(condition = "input.model == 'biGomp'", 
+                 params_biGomp
+                 )
+
+conditionalPanel(condition = "input.model == 'spline'", 
+                 params_spline
+                 )
+
+
+```
+
+
+
+#### Set parameter bounds
+
+```{r}
+bounds_gomp <- list(
+  numericInput("A_low", "A Lower bound", 0),
+  numericInput("A_up", "A Upper bound", 100),
+  numericInput("Lag_low", "Lag Lower bound", 0),
+  numericInput("Lag_up", "Lag Upper bound", 100),
+  numericInput("Mu_low", "Mu Lower bound", 0),
+  numericInput("Mu_up", "Mu Upper bound", 10),
+  numericInput("C_low", "C Lower bound", -10),
+  numericInput("C_up", "C Upper bound", 10),
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL
+)
+
+bounds_biGomp <- list(
+  numericInput("A_low", "A_1 Lower bound", 0),
+  numericInput("A_up", "A_1 Upper bound", 100),
+  numericInput("A_2_low", "A_2 Lower Bound", 0),
+  numericInput("A_2_up", "A_2 Upper Bound", 100),
+  numericInput("Lag_low", "Lag_1 Lower bound", 0),
+  numericInput("Lag_up", "Lag_1 Upper bound", 100),
+  numericInput("Lag_2_low", "Lag_2 Lower Bound", 0),
+  numericInput("Lag_2_up", "Lag_2 Upper Bound", 100),
+  numericInput("Mu_low", "Mu_1 Lower bound", 0),
+  numericInput("Mu_up", "Mu_1 Upper bound", 10),
+  numericInput("Mu_2_low", "Mu_2 Lower Bound", 0),
+  numericInput("Mu_2_up", "Mu_2 Upper Bound", 10),
+  numericInput("C_low", "C Lower bound", -10),
+  numericInput("C_up", "C Upper bound", 10)
+)
+
+bounds_spline <- list( 
+  renderText("No bounds needed"),
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL
+)
+
+conditionalPanel(condition = "input.model == 'gomp'", 
+                 bounds_gomp
+                 )
+
+conditionalPanel(condition = "input.model == 'biGomp'", 
+                 bounds_biGomp
+                 )
+
+conditionalPanel(condition = "input.model == 'spline'", 
+                 bounds_spline
+                 )
+
+```
+
+
+
+
+```{r}
+# This is where the models are actually fit
+
+df_models <- reactive({
+        
+  
+        # group and nest the data
+        df_nest <- selectedData() %>%
+            group_by(well) %>% 
+            nest()
+        
+        
+        # The nls function used to fit the data
+
+        
+        fit_gompertz_mod <- function(df){
+            
+            #A = 1; mu = 0.1; lam = 2
+            
+            mod <- nls(formula=absorbance~A*exp(-exp(((Mu*exp(1))/A)*(Lag - time) + 1))+C, 
+                       start = c(A = input$A, Mu = input$Mu, Lag = input$Lag, C = input$C), 
+                       algorithm = 'port',
+                       lower = c(A = input$A_low, Mu = input$Mu_low, Lag = input$Lag_low, C = input$C_low),
+                       upper = c(A = input$A_up, Mu = input$Mu_up, Lag = input$Lag_up, C = input$C_up),
+                       data = df)
+            
+            mod
+        }
+        
+        fit_biGompertz_mod <- function(df){
+            
+            mod <- nls( formula=absorbance~( A_1*exp(-exp(((Mu_1*exp(1))/A_1)*(Lag_1 - time) + 1)) ) + 
+                                           ( A_2*exp(-exp(((Mu_2*exp(1))/A_2)*(Lag_2 - time) + 1)) ) + C,
+                        
+#                        start = c(A_1 = 0.5, Mu_1 = 0.2, Lag_1 = 4, C= 0.05, 
+#                                  A_2 = 0.2, Mu_2 = 0.3, Lag_2 = 5),
+                        start = c(A_1 = input$A, Mu_1 = input$Mu, Lag_1 = input$Lag, C = input$C, 
+                                  A_2 = input$A_2, Mu_2 = input$Mu_2, Lag_2 = input$Lag_2),
+                        lower = c(A_1 = input$A_low, A_2 = input$A_2_low, Mu_1 = input$Mu_low, Mu_2 = input$Mu_2_low, Lag_1 = input$Lag_low, Lag_2 = input$Lag_2_low, C = input$C_low),
+                        upper = c(A_1 = input$A_up, A_2 = input$A_2_up, Mu_1 = input$Mu_up, Mu_2 = input$Mu_2_up, Lag_1 = input$Lag_up, Lag_2 = input$Lag_2_up, C = input$C_up),
+                        data = df, 
+                        
+                        algorithm = 'port')
+            
+            mod
+          
+          }
+
+fit_spline_mod <- function(df){
+
+  mod <- gcFitSpline(time = df$time, data = df$absorbance, gcID = 'best spline', control = grofit.control(interactive = F))
+
+  mod
+
+  }
+
+  df_mod<- if(input$model == 'gomp'){
+    
+    df_nest %>% mutate(fit_result = map(data, safely(fit_gompertz_mod)))
+    
+  }else{
+    if(input$model == 'biGomp'){
+      
+        df_nest %>% mutate(fit_result = map(data, safely(fit_biGompertz_mod)))
+
+    } else{
+        
+      df_nest %>% mutate(fit_result = map(data, safely(fit_spline_mod)))
+
+    }
+  }
+
+        # fit data using the above function ...do this safely in case of errors
+       df_models <- df_mod %>% 
+            ungroup() %>%
+            mutate(fit_errors = map(fit_result, 'error')) %>%
+             mutate(models = map(fit_result,'result')) %>%
+             mutate(fit_error_occured = map(.x = models, .f = is.null), fit_error_occured = unlist(fit_error_occured))
+        
+        return(df_models)
+        #return(df_mod)
+        
+    })
+```
+
+
+```{r}
+    ##### generate the predictions from the models
+    df_preds <- reactive({
+        
+        df_preds <- if(input$model == 'gomp' | input$model == 'biGomp'){
+          
+          df_models() %>% 
+            filter(fit_error_occured == FALSE) %>% 
+            mutate(preds = map2(data, models, add_predictions)) %>% 
+            unnest(preds)
+          
+        } else{
+          
+          tidy_best_spline_preds <- function(df){
+            
+            tibble(time = df$fit.time,
+                   pred = df$fit.data,
+                   absorbance = df$raw.data)
+            }
+          
+          df_models() %>% 
+            filter(fit_error_occured == FALSE) %>% 
+            mutate(preds = map(models, tidy_best_spline_preds)) %>% 
+            unnest(preds)
+        }
+            
+        return(df_preds)
+    })
+```
+
+```{r}
+
+########################################
+# GENERATE PARAM ESTIMATES FROM MODELS #
+########################################
+
+df_ests <- reactive({
+  
+  ########################################
+  # Getting param estimates depends on model #
+  # spline have no conf.int and require parsing grofit output#
+  ########################################
+  
+  df_ests <- if(input$model == 'gomp' | input$model == 'biGomp'){
+    
+    df_models() %>% 
+      filter(fit_error_occured == FALSE) %>% 
+      mutate(est_result = map(models, safely(tidy), conf.int = T)) %>% 
+      mutate(est_errors = map(est_result, 'error')) %>% 
+      mutate(ests = map(est_result,'result')) %>% 
+      mutate(est_error_occured = map(.x = ests, .f = is.null), est_error_occured = unlist(est_error_occured)) %>% 
+      mutate(ests = ifelse(est_error_occured == T, map(models, tidy, conf.int = F), ests)) %>% 
+      unnest(ests)
+    
+      } else{
+        
+        tidy_best_spline_ests <- function(df){
+          
+          tibble(Lag = df$parameters$lambda, Mu = df$parameters$mu, A = df$parameters$A) %>%
+            pivot_longer(cols = c(Lag, Mu, A),names_to = 'term',values_to = 'estimate') %>% 
+            filter(!is.na(estimate))
+          
+          }
+        
+        df_models() %>% 
+          filter(fit_error_occured == FALSE) %>% 
+          mutate(ests = map(models, tidy_best_spline_ests )) %>% 
+          mutate(est_error_occured = T) %>% 
+          unnest(ests)
+
+        }
+        
+  ########################################
+  # Convert absolute growth rate Mu_A to relative growth rate Mu_R and doubling time T_d #
+  # Mu_A params are different for each model, requiring different if statements #
+  ########################################
+  
+  df_ests <- df_ests %>% mutate(mu_type = ifelse(term %in% c('Mu','Mu_1','Mu_2'), 'Mu_a', 'other'))
+  
+  if(input$model == 'gomp'){
+    
+    mu_ests <- df_ests %>% select(well, term, estimate, conf.low, conf.high) %>% filter(term %in% c('A','Mu')) %>% 
+      pivot_wider(id_cols = well, names_from = term, values_from = c(estimate, conf.low, conf.high)) %>% 
+      mutate(Mu_r      = (estimate_Mu * exp(1)) / estimate_A, 
+             Mu_r_high = (conf.high_Mu * exp(1)) / estimate_A, 
+             Mu_r_low  = (conf.low_Mu*exp(1)) / estimate_A 
+             ) %>% 
+      mutate(T_d = log(2) / Mu_r,
+             T_d_high = log(2) / Mu_r_high,
+             T_d_low = log(2) / Mu_r_low)
+          
+        mu_r_ests <- mu_ests %>% select(well, estimate = Mu_r, conf.low = Mu_r_low, conf.high = Mu_r_high) %>% mutate(term = "Mu_r", mu_type = 'Mu_r')
+        
+        t_d_ests <- mu_ests %>% select(well, estimate = T_d, conf.low = T_d_low, conf.high = T_d_high) %>% mutate(term = "T_d", mu_type = 'T_d')
+        
+        df_ests <- bind_rows(df_ests, mu_r_ests, t_d_ests)
+        
+  }
+  
+  if(input$model == 'biGomp'){
+    
+    mu_ests <- df_ests %>% select(well, term, estimate, conf.low, conf.high) %>% filter(term %in% c('A_1','A_2','Mu_1','Mu_2')) %>% 
+      pivot_wider(id_cols = well, names_from = term, values_from = c(estimate, conf.low, conf.high)) %>% 
+      mutate(Mu_r_1      = (estimate_Mu_1 * exp(1)) / estimate_A_1, 
+             Mu_r_1_high = (conf.high_Mu_1 * exp(1)) / estimate_A_1, 
+             Mu_r_1_low  = (conf.low_Mu_1*exp(1)) / estimate_A_1,
+             Mu_r_2      = (estimate_Mu_2 * exp(1)) / estimate_A_2, 
+             Mu_r_2_high = (conf.high_Mu_2 * exp(1)) / estimate_A_2, 
+             Mu_r_2_low  = (conf.low_Mu_2*exp(1)) / estimate_A_2 
+             ) %>% 
+      mutate(T_d_1 = log(2) / Mu_r_1,
+             T_d_1_high = log(2) / Mu_r_1_high,
+             T_d_1_low = log(2) / Mu_r_1_low,
+             T_d_2 = log(2) / Mu_r_2,
+             T_d_2_high = log(2) / Mu_r_2_high,
+             T_d_2_low = log(2) / Mu_r_2_low)
+          
+        mu_r_1_ests <- mu_ests %>% select(well, estimate = Mu_r_1, conf.low = Mu_r_1_low, conf.high = Mu_r_1_high) %>% mutate(term = "Mu_r_1", mu_type = 'Mu_r')
+        mu_r_2_ests <- mu_ests %>% select(well, estimate = Mu_r_2, conf.low = Mu_r_2_low, conf.high = Mu_r_2_high) %>% mutate(term = "Mu_r_2", mu_type = 'Mu_r')
+        
+        t_d_1_ests <- mu_ests %>% select(well, estimate = T_d_1, conf.low = T_d_1_low, conf.high = T_d_1_high) %>% mutate(term = "T_d_1", mu_type = 'T_d')
+        t_d_2_ests <- mu_ests %>% select(well, estimate = T_d_2, conf.low = T_d_2_low, conf.high = T_d_2_high) %>% mutate(term = "T_d_2", mu_type = 'T_d')
+        
+        df_ests <- bind_rows(df_ests, mu_r_1_ests,mu_r_2_ests, t_d_1_ests, t_d_2_ests)
+        
+    }
+  
+    if(input$model == 'spline'){
+    
+      #print(df_ests)
+      
+      mu_ests <- df_ests %>% select(well, term, estimate) %>% filter(term %in% c('A','Mu')) %>% 
+        pivot_wider(id_cols = well, names_from = term, values_from = estimate) %>% 
+        mutate(Mu_r = (Mu * exp(1)) / A) %>% 
+        mutate(T_d = log(2) / Mu_r)
+          
+      mu_r_ests <- mu_ests %>% select(well, estimate = Mu_r) %>% mutate(term = "Mu_r", mu_type = 'Mu_r')
+          
+      t_d_ests <- mu_ests %>% select(well, estimate = T_d) %>% mutate(term = "T_d", mu_type = 'T_d')
+      
+      df_ests <- bind_rows(df_ests, mu_r_ests, t_d_ests)
+        
+    }
+  
+      
+      
+    
+    #print(df_ests)
+        
+        #add back into df_ests
+    
+
+        
+    #print(df_ests %>% select(well, term, estimate, mu_type) %>% tail())
+    
+    return(df_ests)
+    
+  })
+
+
+```
+
+```{r}
+df_pred_ests <- reactive({
+  
+  gen_gompertz <- function(a, mu, lag, c, time){
+    
+    a*exp(-exp(((mu*exp(1))/a)*(lag - time) + 1 )) + c
+    
+  }
+  
+  if(input$model == 'gomp'){
+    
+    #df_pred_ests <- df_preds()
+    
+    df_ests_low <- df_ests() %>%
+      pivot_wider(id_cols = 'well', names_from = 'term', names_prefix = 'low_', values_from = 'conf.low')# %>% 
+      #pivot_wider(id_cols = 'well', names_from = 'term', names_prefix = 'high_', values_from = 'conf.high' )
+    
+    df_ests_high <- df_ests() %>%
+      pivot_wider(id_cols = 'well', names_from = 'term', names_prefix = 'high_', values_from = 'conf.high')
+    
+    df_ests_wide <- left_join(df_ests_low, df_ests_high, by = 'well')
+    
+    #print(df_ests_wide)
+    
+    df_pred_ests <- left_join(df_preds(), df_ests_wide, by = 'well') %>%
+      mutate(pred_low = gen_gompertz(a = low_A, mu = low_Mu, lag = high_Lag, c = low_C, time = time)) %>% 
+      mutate(pred_high = gen_gompertz(a = high_A, mu = high_Mu, lag = low_Lag, c = high_C, time = time))
+
+  }
+
+  if(input$model == 'biGomp'){
+    
+    #df_pred_ests <- df_preds()
+    
+    df_ests_wide <- df_ests() %>%
+      pivot_wider(id_cols = 'well', names_from = 'term', values_from = 'estimate' )
+
+    df_pred_ests <- left_join(df_preds(), df_ests_wide, by = 'well') %>%
+      mutate(pred_1 = gen_gompertz(a = A_1, mu = Mu_1, lag = Lag_1, c = C, time = time)) %>%
+      mutate(pred_2 = gen_gompertz(a = A_2, mu = Mu_2, lag = Lag_2, c = C, time = time))
+
+  }
+  
+
+
+    return(df_pred_ests)
+})
+
+#renderDataTable(df_pred_ests() %>% select(well, fit_error_occured, A_2))
+
+```
+
+
+
+## Plot overviews{.tabset}
+
+### Fit Plots
+```{r}
+
+plotOutput("plot")
+
+output$plot <- renderPlot({
+  
+  
+if(input$model == 'gomp'){
+  # p <- ggplot(data = df_preds(), aes_string(x=df_preds()$time, y = df_preds()$absorbance)) + 
+  #   geom_point(shape = 21) + 
+  #   geom_path(aes(y = df_preds()$pred), size = 1, color = 'blue')+ 
+  #   geom_path(data = df_pred_ests(), aes(x = df_pred_ests()$time, y = df_pred_ests()$pred_low), size = 1, color = 'red')+
+  #   geom_path(data = df_pred_ests(), aes(x = df_pred_ests()$time, y = df_pred_ests()$pred_high), size = 1, color = 'green')+
+  #   facet_wrap(~well, scales = 'free') +
+  #   labs(x = 'Time (Hrs)', y = 'Absorbance') + theme_bw()
+  
+  p <- ggplot(data = df_preds(), aes_string(x=df_preds()$time, y = df_preds()$absorbance)) +
+    geom_ribbon(data = df_pred_ests(), aes(x = df_pred_ests()$time, ymin = df_pred_ests()$pred_low, ymax = df_pred_ests()$pred_high), fill = 'light gray')+
+    geom_point(shape = 21) +
+    geom_path(aes(y = df_preds()$pred), size = 1, color = 'blue')+
+    facet_wrap(~well, scales = 'free') +
+    labs(x = 'Time (Hrs)', y = 'Absorbance') + theme_bw()
+  
+}
+  
+  if(input$model == 'biGomp'){
+
+    p <- ggplot(df_pred_ests(), aes(x = df_pred_ests()$time)) +
+      geom_point(aes(y = df_pred_ests()$absorbance), shape = 21)+
+      geom_path(aes(y = df_pred_ests()$pred), color = 'blue', size = 1) +
+      geom_path(aes(y = df_pred_ests()$pred_1), color = 'red', size = 1) +
+      geom_path(aes(y = df_pred_ests()$pred_2), color = 'red', linetype = 2, size = 1) +
+      facet_wrap(~well, scales = 'free')+
+      labs(x = 'Time (Hrs)', y = 'Absorbance') + theme_bw()
+
+  }
+  
+  if(input$model == 'spline'){
+      
+      df_ests_spline <- df_ests() %>% pivot_wider(id_cols = well, names_from = term, values_from = estimate)
+      
+      p <- ggplot(data = df_preds(), aes(x=time, y = pred)) + 
+        geom_point(aes(y = absorbance), shape = 21) +
+        geom_path(color = 'blue', size = 1)  + 
+        geom_abline(data = df_ests_spline, aes(slope = Mu, intercept = -Lag * Mu), color = 'red') + 
+        geom_hline(data = df_ests_spline, aes(yintercept = A), color = 'red') + 
+        facet_wrap(~well, scales = 'free') + 
+        labs(x = 'Time (Hrs)', y = 'Absorbance') + theme_bw()
+
+  }
+  
+  
+  print(p)
+        
+    })
+
+```
+
+### Error Plots
+
+```{r}
+
+renderPlot({
+  
+  df_errors <- df_models() %>% filter(fit_error_occured == T)
+  
+  df_error_plot <- left_join(df_errors, selectedData(), by = 'well')
+  
+  p <- ggplot(data = df_error_plot, aes_string(x=df_error_plot$time, y = df_error_plot$absorbance)) + 
+    geom_point(shape = 21) + 
+    facet_wrap(~well, scales = 'free') +
+    labs(x = 'Time (Hrs)', y = 'Absorbance') + theme_bw()
+  
+  print(p)
+})
+
+```
+
+
+## Table{data-height='75%'}
+
+### Error Table
+
+```{r}
+renderTable({df_models() %>% select(well, fit_error_occured)})
+```
+
+# 4. Download Parameter Estimates {data-orientation=rows}
+
+## {.sidebar data-width='300%'}
+
+### 4. Download Model Results
+
+See instructions for details.
+
+#### Select growth rate units
+
+```{r}
+
+selectInput("mu", NULL, c("Absolute Growth Rate (Mu_a)" = "Mu_a", "Relative Growth Rate (Mu_r)"="Mu_r", "Doubling Time (T_d)" = "T_d"), selected = 'Mu_a')
+
+```
+
+#### Downloads
+
+Parameter estimates of A, Lag, and Mu. Confidence intervals are included for gompertz models.
+
+```{r}
+df_ests_output <- reactive({
+  
+  if(input$model == 'gomp' | input$model == 'biGomp'){
+  
+  df_ests_output <- df_ests() %>% select(-c(data, fit_result, fit_errors, models, est_result, est_errors))
+  
+  } else{
+    
+    if(input$model == 'spline'){
+      df_ests_output <- df_ests() %>% select(well, term, estimate)
+    }
+    
+  }
+  
+  return(df_ests_output)
+    
+  })
+
+ downloadHandler(
+         filename = 'growth_curve_parameter_estimates.csv',
+         outputArgs = list(label = 'Parameter estimates'),
+         content = function(file) {
+             write_csv(df_ests_output(), file)
+         }
+     )
+
+```
+
+-----
+
+Best fit curves along with raw data.
+
+```{r}
+
+pred_file <- reactive({  
+  
+  pred_file <- df_preds()
+
+  # if(input$biGomp){
+  # 
+  #   pred_file <- df_pred_ests()
+  #   
+  #   }
+  
+  })
+
+
+downloadHandler(
+  filename = 'growth_curve_model_fits.csv',
+  outputArgs = list(label = 'Best fit curves'),
+  content = function(file) { write_csv(pred_file() %>% select(-c(data, fit_result, fit_errors, models)), file)}
+    )
+
+
+
+```
+
+## {data-height='100%'}
+
+### Plot estimates 
+
+```{r}
+renderPlot({
+        
+  #mu_type == input$mu | 
+  print(input$mu)
+  
+  print(df_ests() %>% select(well, term, estimate, mu_type) %>% filter(mu_type == input$mu | mu_type == 'other'), n=50)
+  #print(df_ests() %>% select(well, term, estimate, mu_type) %>% filter(mu_type == input$mu | mu_type == 'other') %>% tail())
+  
+  plot_ests_df <- df_ests() %>% filter(mu_type == input$mu | mu_type == 'other')
+  
+  p2 <- ggplot(data = plot_ests_df, aes(x=well, y = estimate)) + geom_point(size = 3)+
+      facet_wrap(~term, scales = 'free') +
+      labs(x = 'Well', y = 'Parameter Estimate') + theme_bw()
+  
+  if(df_ests()$est_error_occured == F){
+    p2 = p2 + geom_pointrange(aes(ymin = conf.low, ymax = conf.high )) 
+  }
+  
+  print(p2)
+        
+  })
+
+```
+
+## {data-height='25%'}
+
+### Table estimates 
+
+```{r}
+renderTable({df_ests() %>% select(well, term, estimate, est_error_occured)})
+```
+
+# Parameter Explorer
+
+```{r, echo=FALSE, results='asis'}
+#res <- knitr::knit_child('parameter_explorer.Rmd', quiet = TRUE)
+#cat(res, sep = '\n')
+```
+
+
+## {.sidebar data-width='300%'}
+
+### Parameters
+
+#### Select growth rate units
+```{r}
+  
+selectInput("mu_2", 
+            "", 
+            c("Absolute Growth Rate (Mu_a)" = "Mu_a", "Relative Growth Rate (Mu_r)"="Mu_r", "Doubling Time (T_d)" = "T_d"), 
+            selected = 'Mu_a')
+
+
+
+```
+
+```{r}
+  
+  conditionalPanel(condition = "input.mu_2 == 'Mu_a'", 
+                   numericInput("gen_Mu", "Mu - Absolute growth rate", value = 0.2, min = 0, step = 0.05)
+                 )
+  
+  conditionalPanel(condition = "input.mu_2 == 'Mu_r'", 
+                   numericInput("gen_Mu_r", "Mu_R - Relative growth rate", value = 0.2, min = 0, step = 0.05)
+                 )
+  
+  conditionalPanel(condition = "input.mu_2 == 'T_d'", 
+                   numericInput("gen_T_d", "T_D - Doubling time", value = 1, min = 0, step = 0.1)
+                 )
+  
+
+  numericInput("gen_A", "A - Upper asymptote", value = 2, min = 0, step = 0.5)
+  numericInput("gen_Lag", "Lag time", value = 4, step = 1)
+  numericInput("gen_C", "C - Lower asymptote", 0, step = 0.1)
+  numericInput("t_max","Time series length",48, step = 1)
+  numericInput("t_step",'Time series step',0.5, step = 0.1)
+  checkboxInput("show_data", "Overlay selected user data", F)
+  
+```
+
+
+## Plots
+
+### Plots
+
+```{r}
+renderPlot({
+  
+  gen_gompertz <- function(Mu, A, Lag, C = 0, sd = 0, tmax = 48,tstep = 0.5){
+  
+  t = seq(0,tmax,tstep)  
+    
+  vals <- A*exp(-exp(((Mu*exp(1))/A)*(Lag - t) + 1)) + C
+  
+  tibble(t = t, y = vals)
+  }
+  
+  mu_temp <- input$gen_Mu
+  
+  if(input$mu_2 == 'Mu_r'){mu_temp <- (input$gen_Mu_r*input$gen_A) / exp(1)}
+  
+  if(input$mu_2 == 'T_d'){mu_temp <- ((log(2)/input$gen_T_d)*input$gen_A) / exp(1)}
+  
+  #print(df())
+  
+  df_gen = gen_gompertz(Mu = mu_temp, A = input$gen_A, Lag = input$gen_Lag, C = input$gen_C, tmax = input$t_max, tstep = input$t_step)
+
+  p <- ggplot(df_gen, aes(x = t, y=y)) + geom_path(color = 'blue', size = 1)
+  
+  if(input$show_data & !is.null(input$file1)){
+    
+    p <- p+geom_path(data = selectedData(), aes(time, absorbance, group = well))
+    
+  }
+  
+  print(p)
+
+})
+```

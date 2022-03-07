@@ -1,0 +1,126 @@
+---
+title: "Instructions"
+---
+
+## {.tabset}
+
+### About
+
+#### About
+
+One of the most common experiments in microbiology is the growth curve. Typically, absorbance measurements (wavelength = 600 nm) are taken over time, which correspond to cell density in the liquid medium. As cells divide to reproduce, their overall growth reflects an exponential process, until they run out of food and stop growing. These growth curves are often used as qualitative data to show that cells grew more slowly or to a lower density in one condition compared to another. However, there are many ways that growth curves can be understood quantitatively. Microbiologists have long appreciated this fact, and generations of trainees have calculated parameters by finding the slope of a growth curve on a log scale. This project aims to modernize this tradition, by empowering users to rapidly quantify parameters and uncertainty from their data without having to code.
+
+**Growth Curve FittR** is an R / shiny app that fits simple models to microbial growth curves to extract parameters of interest like *Lag* and *Growth rate*. Follow steps 1-4 in the tabs above to fit your growth curve data in a variety of ways.
+
+**Please don't forget to cite this tool!** Info here a;lsdkjfa;lsdfkj.
+
+------
+
+#### 1. Upload Data 
+
+First upload your growth curve data as a spreadsheet or csv file. The first column should be the timepoints in units of hours, and each subsequent column should contain the optical density value (or cell number or fluorescence etc.) for each culture at the specified timepoint. For example:
+
+```{r}
+renderTable({
+  
+  data_frame("time_hrs" = c('1','2','3'), 'WT_OD600' = c(0.0, 0.1, 0.3), '∆gene_OD600' = c(0.0, 0.0, 0.1))
+  
+})
+```
+
+You can download some **example data** [here]() to practice uploading and fitting data. If you have problems uploading your own data, make sure that your file looks exactly like these examples.
+
+-----
+
+#### 2. Select Data to Fit
+
+a;sdlkfjas;ldkfj
+
+-----
+
+#### 3. Fit Models
+
+You have three models to choose from. See details in the tabs above:
+
+* [Single Gompertz]
+* [Bi-Gompertz]
+* [Spline]
+
+-----
+
+#### 4. Download Model Results
+
+a;lskdfa;lskdfj
+
+### Single Gompertz 
+
+#### Single Gompertz
+
+
+
+[Zwietering 1990](https://aem.asm.org/content/56/6/1875), and [Tjorve, 2017](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0178691) both suggest that the Gompertz model is the ideal parameterization to use for fitting biological growth curves. Traditionally it has three parameters $A$, $\mu_A$, and $\lambda$, as described in the models tab. I have added the parameter $C$ so that data do not need to start at zero. 
+
+
+```{r, echo = F, fig.align='center'}
+
+knitr::include_graphics("gomp_diagram.png")
+
+```
+
+
+
+The single gompertz equation used here is the following:
+
+$$ y = A exp \left(-exp \left(\frac{\mu_A e}{A}(\lambda - t) + 1 \right)\right) + C$$
+
+It is important to note that $\mu_A$ refers to absolute growth rate, *not* relative growth rate. This is valuable because it allows us to compare between spline and gompertz models and it makes intuitive sense that the same growth rate can continue for various time periods giving different final densities, $A$.
+
+However, typically when we think about microbial growth curves we are interested in relative growth rates that can be converted into doubling times or generation times. Growth Curve FittR will do this automatically for you by relating absolute growth rate $\mu_A$ to a relative growth rate $\mu_R$. This conversion is simply:
+
+$$ \mu_R =  \frac{\mu_A e}{A}$$
+
+From relative growth rate, $\mu_R$. Doubling time, $t_d$ can be easily calculated:
+
+$$ t_d = \frac{\ln(2)}{\mu_R}$$
+
+The models are actually fit with a nonlinear least squares method, specifically the [nls function](https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/nls) from R. This method is extremely fast, but it requires pretty good guesses for parameter values. Therefore you can provide custom parameter values below, and more specifically you can provide parameter bounds, which will help the algorithm search a smaller parameter space. If many of your experiments cannot be fit, try playing with the parameter starts and bounds. The model will refit every time you change a parameter input. Fitting happens nearly instantly, but plotting many growth curves may cause slight delays.
+
+If nls() cannot fit a model to the data it returns an error which is recorded in the error table ('fit_error_occured' column) on the Model Fits page. These data that cannot be fit are displayed under the 'Error Plots' tab on the Model Fits page. If there is a specific type of curve the function is having a problem with, it should be obvious from this tab.
+
+For most fits, the nls() model will generate a 95% confidence interval for the parameter estimates, however, in certain cases (beyond my understanding) it can estimate a parameter but not the associated confidence interval. This is recorded on the Parameter estimates page, in the table estimates panel, under the 'est_error_occured' column. 
+
+### Bi-Gompertz 
+
+#### Bi-Gompertz 
+
+The Bi-Gompertz model is basically two single gompertz models added together. This is my own parameterization and it assumes two simultaneous growth phases, each controlled by their own set of parameters (e.g. $A_1$ and $A_2$). For a classic microbial diauxic shift, the second growth phase should have a longer lag / $\lambda$ that shifts the model to that point. However, this is my own creation and their may be better parameterizations / models for doing this type of analysis!
+
+The bi gompertz equation is the following:
+
+$$ y = \left( A_1*exp \left(-exp \left(\frac{\mu_1 e}{A_1}(\lambda_1 - t) + 1 \right)\right)\right) + \left( A_2*exp \left(-exp \left(\frac{\mu_2 e}{A_2}(\lambda_2 - t) + 1 \right)\right)\right) + C$$
+
+Like the single gompertz model, the bi-gompertz is fit using the [nls function](https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/nls). It is still quite fast for this model, but it may require slightly longer than the single gompertz. More importantly, this model may be more difficult to fit, requiring quite a bit of fine tuning of the start parameters and parameter bounds. It is worth trying to take hints for these values from the parameter estimates of successfully fit (single or bi-gompertz) curves. You can even try selecting subsets (e.g. second growth phase only) of the data for single gompertz fitting and use those parameters to initialize the bi-gompertz.
+
+When you examine the model fits from the bi-gompertz their should be a blue curve, which is the final fit. The two red curves separate representations of the two growth phases fit by this model. Accordingly, in the parameter estimates, you will see values for all 7 parameters.
+
+The parameter estimate confidence intervals follow the same scheme as the single gompertz model. 
+
+### Spline
+
+#### Spline
+
+The spline model does not assume anything about microbial growth or any underlying process. Intead it simply fits tangent lines to a curve. To fit the spline model I actually use gcFitSpline() from a very interesting R package called [grofit](https://www.jstatsoft.org/article/view/v033i07). It actually takes a much more sophisticated approach than I have, so I encourage you to check it out if you use R and want to fit growth curves very rigorously!
+
+Grofit fits splines to the growth curve and it extracts values for A, Lag, and Mu by assumming some very basic things (this is my crude understanding). For Mu, I believe it returns the spline with the greatest slope. Then it finds the X-intercept of that line to get Lag. 
+
+I don't know more than that, and there is no model underlying these parameter estimates, so check that the model fits look reasonable. However, I think that this is similar to taking a ruler and finding the tangent manually, like an old-school microbiologist! You will see that when the Model Fits are plotted you can see the tangent line that Mu and Lag are calculated from and the asymptote that gives A as red lines.
+
+As of now, the spline model returns parameter estimates, but no confidence intervals. In order to get confidence intervals I would need to do something like fit bootstrapped data, which I tried, but takes too long to run. For now, I thought it was worth it to have the model fit instantly, but without confidence intervals!
+
+### FAQ's
+
+#### FAQ's
+
+**1. I don't see anything?**
+
+*a;lskdfj;alskdfj*

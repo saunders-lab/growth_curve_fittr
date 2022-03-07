@@ -1,0 +1,93 @@
+---
+title: "Fitting Gompertz curves in an example R notebook"
+subtitle: 'Growth Curve FittR: Easy nonlinear curve fitting for experimental biologists'
+author: 'Scott H. Saunders'
+date: "Last updated: `r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    theme: cosmo
+    highlight: tango
+    code_folding: show
+    toc: yes
+    keep_md: true
+---
+
+```{r setup, echo=F, message=FALSE, warning=FALSE}
+
+# Code display options
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=FALSE, echo = TRUE, message=FALSE, warning=FALSE, fig.align="center", fig.retina = 2)
+
+library(tidyverse)
+
+theme_set(theme_bw() + theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5)))
+
+```
+
+------
+
+
+```{r}
+
+df_gomp <- read_csv("./2021_12_03_gomp_growth_curve_parameter_estimates.csv")
+df_spline <- read_csv("./2021_12_03_spline_growth_curve_parameter_estimates.csv")
+```
+
+```{r}
+
+df_both <- left_join(df_spline, df_gomp, by = c('well', 'term'))
+df_both
+```
+
+```{r}
+ggplot(df_both %>% filter(!is.na(estimate.y)), aes(estimate.x, estimate.y)) + geom_point() + geom_abline(slope = 1, intercept = 0) + facet_wrap(~term, scales = 'free')
+```
+
+```{r}
+
+ggplot(df_both %>% filter(term=='Mu') %>% filter(!is.na(estimate.y)), aes(estimate.x, estimate.y)) + geom_point() + facet_wrap(~term, scales = 'free')
+
+```
+
+```{r}
+df <- df_both %>% separate(well, into = c('A','gen_A','Mu','gen_Mu','Lag','gen_Lag'), sep = "_")
+
+wells <- df_both %>% select(well) %>% unique() 
+
+well_vals <- wells %>%  separate(well, into = c('1','A','2','Mu','3','Lag'), sep = "_", convert = T) %>% select(A,Mu,Lag) 
+
+well_meta <- bind_cols(wells, well_vals) %>% pivot_longer(c('A','Mu','Lag',),names_to = 'term', values_to = 'gen_value')
+
+df_both_meta <- left_join(well_meta,df_both, by = c('well','term'))
+```
+
+```{r}
+
+ggplot(df_both_meta, aes(x = gen_value, y = estimate.y )) + geom_point(shape = 21, alpha = 0.25) + geom_abline(slope = 1, intercept =0) + facet_wrap(~term,scales = 'free')
+
+ggplot(df_both_meta, aes(x = gen_value, y = estimate.y )) + geom_pointrange(aes(ymin =conf.low, ymax = conf.high), shape = 21, alpha = 0.25) + geom_abline(slope = 1, intercept =0) + facet_wrap(~term,scales = 'free')
+
+
+ggplot(df_both_meta, aes(x = gen_value, y = estimate.x )) + geom_point(shape = 21, alpha = 0.25) + geom_abline(slope = 1, intercept =0) + facet_wrap(~term,scales = 'free')
+
+
+```
+
+```{r}
+df_both_meta %>% 
+  group_by(term, gen_value) %>% 
+  summarise(mean_gomp = mean(estimate.y, na.rm = T), mean_spline = mean(estimate.x, na.rm = T), sd_gomp = sd(estimate.y, na.rm = T), sd_spline = sd(estimate.x, na.rm = T)) %>%
+  ggplot(.,aes(x = gen_value, y = mean_gomp)) + 
+  geom_abline(slope = 1, intercept = 0, color = 'light gray')+
+  geom_pointrange(aes(ymin = mean_gomp - sd_gomp, ymax = mean_gomp + sd_gomp), shape = 21)+
+  facet_wrap(~term, scales = 'free')+ theme_bw()
+
+df_both_meta %>% 
+  group_by(term, gen_value) %>% 
+  summarise(mean_gomp = mean(estimate.y, na.rm = T), mean_spline = mean(estimate.x, na.rm = T), sd_gomp = sd(estimate.y, na.rm = T), sd_spline = sd(estimate.x, na.rm = T)) %>%
+  ggplot(.,aes(x = gen_value, y = mean_spline)) + 
+  geom_abline(slope = 1, intercept = 0, color = 'light gray')+
+  geom_pointrange(aes(ymin = mean_spline - sd_spline, ymax = mean_spline + sd_spline), shape = 21)+
+  facet_wrap(~term, scales = 'free') + theme_bw()
+```
+
+Try generating triplicate curves and averaging with spline to see how well performs with confidence interval on parameters. More realistic with experimental replicates.
