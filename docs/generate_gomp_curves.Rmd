@@ -9,7 +9,6 @@ output:
     highlight: tango
     code_folding: show
     toc: yes
-    keep_md: true
 ---
 
 ```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
