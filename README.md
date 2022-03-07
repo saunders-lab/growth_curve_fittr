@@ -6,8 +6,28 @@ Scott H. Saunders, Distinguished Fellow UTSW, \[lab website\]
 
 -----
 
-  - \[link to app\]
-  - \[link to preprint / pdf\]
+## Accessing the app
+
+The code for the growth curve fitting app lives in this github
+repository. There are three options to run the app:
+
+1.  **[Growth Curve FittR on
+    shinyapps.io](https://saunders-lab.shinyapps.io/growth_curve_fittR/)**
+
+*This is the easiest option. The app will load quickly, but due to
+limits on the number of users it may not always be accessible.*
+
+2.  **[Growth Curve FittR on
+    MyBinder](https://mybinder.org/v2/gh/saunders-lab/growth_curve_fittr/main?urlpath=shiny/growth_curve_fittR_app.Rmd)**
+
+*This provides a backup option that is equivalent to the first, but will
+load more slowly.*
+
+3.  **Download this repo and run Growth Curve FittR on your own
+    computer**
+
+*[Instructions below](##Local) will guide you to get the app set up to
+run on your own computer*
 
 -----
 
@@ -43,3 +63,7 @@ does\]
 <img src="https://render.githubusercontent.com/render/math?math=y=Aexp{\left(-exp{\left(\frac{\mu_A e}{A}(\lambda-t)+1\right)}\right)} +C" width=30% height=30%>
 
 </p>
+
+## Local
+
+1.  Install R/Rstudio
