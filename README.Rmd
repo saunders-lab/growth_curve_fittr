@@ -6,7 +6,7 @@ output:
 ---
 
 
-Scott H. Saunders, Distinguished Fellow UTSW, ![lab website]
+Scott H. Saunders, Distinguished Fellow UTSW, [lab website](saunderslab.org)
 
 [html version](https://saunders-lab.github.io/growth_curve_fittr/)
 
