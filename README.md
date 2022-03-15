@@ -6,10 +6,22 @@ biologists*
 
 [Scott H. Saunders](saunderslab.org), Distinguished Fellow UTSW
 
+</p>
+
+<p align="center">
+
 <img src="screenshot_1.png" width=100% height=100%>
+
+</p>
+
+<p align="center">
 
 [Growth curve fittR
 homepage](https://saunders-lab.github.io/growth_curve_fittr/)
+
+</p>
+
+<p align="center">
 
 [![DOI](https://zenodo.org/badge/447775200.svg)](https://zenodo.org/badge/latestdoi/447775200)
 
