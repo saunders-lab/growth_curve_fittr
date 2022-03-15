@@ -2,7 +2,7 @@ Growth curve fittR: *Easy growth curve curve fitting for experimental
 biologists*
 ================
 
-<center>
+<p align="center">
 
 [Scott H. Saunders](saunderslab.org), Distinguished Fellow UTSW
 
@@ -13,7 +13,7 @@ homepage](https://saunders-lab.github.io/growth_curve_fittr/)
 
 [![DOI](https://zenodo.org/badge/447775200.svg)](https://zenodo.org/badge/latestdoi/447775200)
 
-</center>
+</p>
 
 -----
 
