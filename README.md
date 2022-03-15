@@ -2,9 +2,18 @@ Growth curve fittR: *Easy growth curve curve fitting for experimental
 biologists*
 ================
 
-Scott H. Saunders, Distinguished Fellow UTSW, \[lab website\]
+<center>
 
-[html version](https://saunders-lab.github.io/growth_curve_fittr/)
+[Scott H. Saunders](saunderslab.org), Distinguished Fellow UTSW
+
+<img src="screenshot_1.png" width=100% height=100%>
+
+[Growth curve fittR
+homepage](https://saunders-lab.github.io/growth_curve_fittr/)
+
+[![DOI](https://zenodo.org/badge/447775200.svg)](https://zenodo.org/badge/latestdoi/447775200)
+
+</center>
 
 -----
 
@@ -28,8 +37,8 @@ but will load more slowly.*
 3.  **Download this repo and run Growth Curve FittR on your own
     computer**
 
-*[Instructions below](##Local) will guide you to get the app set up to
-run on your own computer*
+*Once you have R/Rstudio your own computer, you can install the required
+libraries and run `growth_curve_fittR_app.Rmd` locally.*
 
 -----
 
@@ -49,10 +58,17 @@ of a growth curve on a log scale. This project aims to modernize this
 tradition, by empowering users to rapidly quantify parameters and
 uncertainty from their data without having to code.
 
-## Details
+-----
 
 <p align="center">
 
 <img src="gomp_diagram.png" width=75% height=75%>
 
 </p>
+
+## Further reading
+
+  - [Understanding Gompertz
+    Curves](https://saunders-lab.github.io/growth_curve_fittr/docs/generate_gomp_curves.html)
+  - [Gompertz Curves
+    vs. Splines](https://saunders-lab.github.io/growth_curve_fittr/docs/gomp_spline_param_comparison.html)
