@@ -2,17 +2,18 @@ Growth curve fittR: *Easy growth curve curve fitting for experimental
 biologists*
 ================
 
-<p align="center">
+<center>
 
-<a href="saunderslab.org">Scott H. Saunders</a> <a>- Distinguished
-Fellow UTSW</a> <br> <img src="screenshot_1.png" width=100% height=100%>
-<br> <a href="https://saunders-lab.github.io/growth_curve_fittr/">Growth
-curve fittR
-homepage</a>
+[Scott H. Saunders](saunderslab.org), Distinguished Fellow UTSW
 
-</p>
+<img src="screenshot_1.png" width=100% height=100%>
+
+[Growth curve fittR
+homepage](https://saunders-lab.github.io/growth_curve_fittr/)
 
 [![DOI](https://zenodo.org/badge/447775200.svg)](https://zenodo.org/badge/latestdoi/447775200)
+
+</center>
 
 -----
 
